@@ -10,7 +10,7 @@
 // API
 // ============================================================
 
-const API_URL = "https://speakwise-ai-6vj6.onrender.com";
+const API_URL = "https://speakwise-ai-1.onrender.com";
 
 
 // ============================================================
