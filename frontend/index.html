@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="SpeakWise AI - Practice English with AI"
+    >
+
+    <title>SpeakWise AI</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+</head>
+
+
+<body>
+
+
+<div class="app">
+
+
+    <!-- ==================================================
+         SIDEBAR
+    ================================================== -->
+
+    <aside class="sidebar">
+
+
+        <!-- LOGO -->
+
+        <div class="logo">
+
+            <div class="logo-icon">
+                🤖
+            </div>
+
+            <div class="logo-text">
+
+                <h1>
+                    SpeakWise
+                </h1>
+
+                <span>
+                    AI
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <!-- NAVIGATION -->
+
+        <nav class="navigation">
+
+
+            <button
+                type="button"
+                class="nav-item active"
+                data-section="conversation"
+                onclick="showSection('conversation')"
+            >
+
+                <span class="nav-icon">
+                    💬
+                </span>
+
+                <span class="nav-label">
+                    Conversation
+                </span>
+
+            </button>
+
+
+            <button
+                type="button"
+                class="nav-item"
+                data-section="learning"
+                onclick="showSection('learning')"
+            >
+
+                <span class="nav-icon">
+                    📚
+                </span>
+
+                <span class="nav-label">
+                    Learning Assistant
+                </span>
+
+            </button>
+
+
+            <button
+                type="button"
+                class="nav-item"
+                data-section="voice"
+                onclick="showSection('voice')"
+            >
+
+                <span class="nav-icon">
+                    🎤
+                </span>
+
+                <span class="nav-label">
+                    Voice Practice
+                </span>
+
+            </button>
+
+
+            <button
+                type="button"
+                class="nav-item"
+                data-section="progress"
+                onclick="showSection('progress')"
+            >
+
+                <span class="nav-icon">
+                    📊
+                </span>
+
+                <span class="nav-label">
+                    Progress
+                </span>
+
+            </button>
+
+
+        </nav>
+
+
+        <!-- ==================================================
+             SIDEBAR PROFILE
+        ================================================== -->
+
+        <div class="sidebar-bottom">
+
+            <button
+                type="button"
+                class="profile-button"
+                onclick="openProfile()"
+            >
+
+                <div
+                    id="sidebarProfileAvatar"
+                    class="profile-avatar"
+                >
+                    👤
+                </div>
+
+
+                <div class="profile-info">
+
+                    <strong
+                        id="sidebarUserName"
+                    >
+                        Guest User
+                    </strong>
+
+                    <small
+                        id="sidebarUserStatus"
+                    >
+                        Sign in
+                    </small>
+
+                </div>
+
+            </button>
+
+        </div>
+
+
+    </aside>
+
+
+
+    <!-- ==================================================
+         MAIN
+    ================================================== -->
+
+    <main class="main">
+
+
+        <!-- TOP BAR -->
+
+        <header class="topbar">
+
+
+            <div>
+
+                <h2 id="pageTitle">
+                    Conversation
+                </h2>
+
+                <p id="pageSubtitle">
+                    Practice English naturally with SpeakWise AI
+                </p>
+
+            </div>
+
+
+            <button
+                type="button"
+                class="top-profile"
+                onclick="openProfile()"
+                aria-label="Open profile"
+            >
+
+                👤
+
+            </button>
+
+
+        </header>
+
+
+
+        <!-- ==================================================
+             CONVERSATION
+        ================================================== -->
+
+        <section
+            id="conversation"
+            class="page-section active-section"
+        >
+
+
+            <!-- HERO -->
+
+            <div class="hero-card">
+
+
+                <div class="hero-content">
+
+
+                    <span class="badge">
+                        🤖 AI English Partner
+                    </span>
+
+
+                    <h1>
+
+                        Practice English
+                        <br>
+
+                        <span>
+                            with confidence.
+                        </span>
+
+                    </h1>
+
+
+                    <p>
+
+                        Have natural conversations
+                        with SpeakWise AI and improve
+                        your English communication skills.
+
+                    </p>
+
+
+                    <button
+                        type="button"
+                        class="hero-button"
+                        onclick="showSection('voice')"
+                    >
+
+                        🎤 Start Voice Practice
+
+                    </button>
+
+
+                </div>
+
+
+                <div class="hero-visual">
+
+                    <div class="ai-circle">
+
+                        🤖
+
+                    </div>
+
+                </div>
+
+
+            </div>
+
+
+
+            <!-- CHAT -->
+
+            <div class="card chat-card">
+
+
+                <div class="card-header">
+
+
+                    <div>
+
+                        <h3>
+                            💬 Conversation
+                        </h3>
+
+                        <p>
+                            Talk naturally with SpeakWise AI
+                        </p>
+
+                    </div>
+
+
+                </div>
+
+
+                <div
+                    id="chatBox"
+                    class="chat-box"
+                >
+
+
+                    <div class="bot-message">
+
+
+                        <strong>
+                            🤖 SpeakWise
+                        </strong>
+
+
+                        <p>
+                            Hi! Let's practice English
+                            together. 😊
+                        </p>
+
+
+                    </div>
+
+
+                </div>
+
+
+                <div class="chat-input">
+
+
+                    <input
+                        id="chatInput"
+                        type="text"
+                        placeholder="Type your message..."
+                        autocomplete="off"
+                        onkeydown="handleChatKey(event)"
+                    >
+
+
+                    <button
+                        type="button"
+                        onclick="sendMessage()"
+                    >
+
+                        Send
+
+                    </button>
+
+
+                </div>
+
+
+            </div>
+
+
+        </section>
+
+
+
+        <!-- ==================================================
+             LEARNING ASSISTANT
+        ================================================== -->
+
+        <section
+            id="learning"
+            class="page-section"
+        >
+
+
+            <div class="card">
+
+
+                <div class="card-header">
+
+
+                    <div>
+
+                        <h3>
+                            📚 English Learning Assistant
+                        </h3>
+
+                        <p>
+                            Improve grammar, vocabulary
+                            and fluency.
+                        </p>
+
+                    </div>
+
+
+                </div>
+
+
+                <div class="input-label">
+
+                    Enter your English sentence
+
+                </div>
+
+
+                <textarea
+                    id="sentenceInput"
+                    placeholder="Example: I am go to college"
+                ></textarea>
+
+
+                <div class="action-row">
+
+
+                    <button
+                        type="button"
+                        id="learningVoiceButton"
+                        onclick="toggleLearningVoice()"
+                    >
+
+                        🎤 Speak
+
+                    </button>
+
+
+                    <button
+                        type="button"
+                        onclick="analyzeSentence()"
+                    >
+
+                        Analyze Sentence
+
+                    </button>
+
+
+                </div>
+
+
+                <div
+                    id="learningLoading"
+                    class="loading hidden"
+                >
+
+                    🔄 Analyzing...
+
+                </div>
+
+
+                <div
+                    id="result"
+                    class="result hidden"
+                >
+
+
+                    <h3>
+                        Analysis Result
+                    </h3>
+
+
+                    <div class="result-box">
+
+                        <h4>
+                            📚 Grammar
+                        </h4>
+
+                        <div
+                            id="grammarResult"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="result-box">
+
+                        <h4>
+                            📖 Vocabulary
+                        </h4>
+
+                        <div
+                            id="vocabularyResult"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="result-box">
+
+                        <h4>
+                            📊 Language Features
+                        </h4>
+
+                        <div
+                            id="featuresResult"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="result-box">
+
+                        <h4>
+                            🎯 Fluency
+                        </h4>
+
+                        <div
+                            id="fluencyResult"
+                        ></div>
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+
+        </section>
+
+
+
+        <!-- ==================================================
+             VOICE PRACTICE
+        ================================================== -->
+
+        <section
+            id="voice"
+            class="page-section"
+        >
+
+
+            <div class="voice-page">
+
+
+                <div class="voice-header">
+
+
+                    <span class="badge">
+
+                        🎙️ Live Voice Practice
+
+                    </span>
+
+
+                    <h1>
+
+                        Speak naturally.
+
+                    </h1>
+
+
+                    <p>
+
+                        Talk with SpeakWise AI
+                        like a real conversation.
+
+                    </p>
+
+
+                </div>
+
+
+
+                <div class="voice-card">
+
+
+                    <div class="voice-animation">
+
+
+                        <div class="voice-orb">
+
+                            🤖
+
+                        </div>
+
+
+                    </div>
+
+
+                    <h2>
+
+                        SpeakWise AI
+
+                    </h2>
+
+
+                    <p id="voiceStatus">
+
+                        Press the button and
+                        start speaking.
+
+                    </p>
+
+
+                    <button
+                        type="button"
+                        id="voiceStartButton"
+                        class="voice-start-button"
+                        onclick="toggleVoicePractice()"
+                    >
+
+                        🎤 Start Speaking
+
+                    </button>
+
+
+                    <div
+                        id="voiceTranscript"
+                        class="voice-transcript"
+                    >
+
+                        Your conversation will
+                        appear here.
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+
+        </section>
+
+
+
+        <!-- ==================================================
+             PROGRESS
+        ================================================== -->
+
+        <section
+            id="progress"
+            class="page-section"
+        >
+
+
+            <div class="card">
+
+
+                <div class="card-header">
+
+
+                    <div>
+
+                        <h3>
+                            📊 Your Progress
+                        </h3>
+
+                        <p>
+                            Track your English
+                            learning journey.
+                        </p>
+
+                    </div>
+
+
+                </div>
+
+
+
+                <div class="stats-grid">
+
+
+                    <div class="stat-card">
+
+
+                        <div class="stat-icon">
+                            📝
+                        </div>
+
+
+                        <span>
+                            Sentences Practiced
+                        </span>
+
+
+                        <strong
+                            id="sentencesPracticed"
+                        >
+                            0
+                        </strong>
+
+
+                    </div>
+
+
+
+                    <div class="stat-card">
+
+
+                        <div class="stat-icon">
+                            🎯
+                        </div>
+
+
+                        <span>
+                            Average Fluency
+                        </span>
+
+
+                        <strong>
+
+                            <span
+                                id="averageFluency"
+                            >
+                                0
+                            </span>
+
+                            /100
+
+                        </strong>
+
+
+                    </div>
+
+
+
+                    <div class="stat-card">
+
+
+                        <div class="stat-icon">
+                            📚
+                        </div>
+
+
+                        <span>
+                            Grammar Score
+                        </span>
+
+
+                        <strong
+                            id="grammarScore"
+                        >
+                            0%
+                        </strong>
+
+
+                    </div>
+
+
+                </div>
+
+
+
+                <div class="history-section">
+
+
+                    <h3>
+                        Recent Practice
+                    </h3>
+
+
+                    <div
+                        id="historyList"
+                        class="history-list"
+                    >
+
+
+                        <div class="empty-history">
+
+                            No practice history yet.
+
+                        </div>
+
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+
+        </section>
+
+
+    </main>
+
+</div>
+
+
+
+<!-- ==================================================
+     PROFILE MODAL
+================================================== -->
+
+<div
+    id="profileModal"
+    class="modal hidden"
+>
+
+
+    <!-- BACKDROP -->
+
+    <div
+        class="modal-overlay"
+        onclick="closeProfile()"
+    ></div>
+
+
+    <!-- PROFILE CARD -->
+
+    <div class="profile-modal">
+
+
+        <!-- CLOSE -->
+
+        <button
+            type="button"
+            class="modal-close"
+            onclick="closeProfile()"
+            aria-label="Close"
+        >
+
+            ×
+
+        </button>
+
+
+
+        <!-- AVATAR -->
+
+        <div
+            id="profileAvatar"
+            class="profile-avatar-large"
+        >
+
+            👤
+
+        </div>
+
+
+
+        <!-- NAME -->
+
+        <h2
+            id="profileUserName"
+        >
+
+            Guest User
+
+        </h2>
+
+
+
+        <!-- EMAIL -->
+
+        <p
+            id="profileUserEmail"
+            class="profile-email"
+        >
+
+            Sign in to save your progress
+
+        </p>
+
+
+
+        <!-- AUTH MESSAGE -->
+
+        <div
+            id="authMessage"
+            class="auth-message hidden"
+        ></div>
+
+
+
+        <!-- ==================================================
+             GOOGLE LOGIN
+        ================================================== -->
+
+        <button
+            type="button"
+            id="googleLoginButton"
+            class="auth-button google-button"
+            onclick="googleLogin()"
+        >
+
+            <span class="google-logo">
+                G
+            </span>
+
+            <span>
+                Continue with Google
+            </span>
+
+        </button>
+
+
+
+        <!-- ==================================================
+             MOBILE LOGIN
+        ================================================== -->
+
+        <div class="phone-login-box">
+
+
+            <div class="phone-title">
+
+                📱 Sign in with Mobile
+
+            </div>
+
+
+            <input
+                type="tel"
+                id="phoneNumber"
+                class="phone-input"
+                placeholder="+91 9876543210"
+                autocomplete="tel"
+            >
+
+
+            <button
+                type="button"
+                id="sendOtpButton"
+                class="auth-button phone-button"
+                onclick="sendOTP()"
+            >
+
+                Send OTP
+
+            </button>
+
+
+
+            <!-- OTP -->
+
+            <div
+                id="otpSection"
+                class="hidden"
+            >
+
+
+                <input
+                    type="text"
+                    id="otpCode"
+                    class="phone-input"
+                    placeholder="Enter 6-digit OTP"
+                    maxlength="6"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                >
+
+
+                <button
+                    type="button"
+                    id="verifyOtpButton"
+                    class="auth-button phone-button"
+                    onclick="verifyOTP()"
+                >
+
+                    Verify OTP
+
+                </button>
+
+
+            </div>
+
+
+        </div>
+
+
+
+        <!-- ==================================================
+             RECAPTCHA
+        ================================================== -->
+
+        <div
+            id="recaptcha-container"
+            class="recaptcha-container"
+        ></div>
+
+
+
+        <!-- ==================================================
+             PROFILE PROGRESS
+        ================================================== -->
+
+        <div
+            class="profile-progress"
+        >
+
+
+            <div>
+
+
+                <span>
+                    Practice Sessions
+                </span>
+
+
+                <strong
+                    id="profileSessions"
+                >
+                    0
+                </strong>
+
+
+            </div>
+
+
+        </div>
+
+
+
+        <!-- ==================================================
+             LOGOUT
+        ================================================== -->
+
+        <button
+            type="button"
+            class="logout-button"
+            onclick="logoutUser()"
+        >
+
+            🚪 Sign Out
+
+        </button>
+
+
+    </div>
+
+
+</div>
+
+
+
+<!-- ==================================================
+     FIREBASE
+================================================== -->
+
+<script
+    type="module"
+    src="firebase.js"
+></script>
+
+
+
+<!-- ==================================================
+     MAIN SCRIPT
+================================================== -->
+
+<script
+    src="script.js"
+></script>
+
+
+</body>
+
+</html>

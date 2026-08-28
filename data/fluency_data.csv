@@ -1,0 +1,19 @@
+sentence,grammar_errors,fluency_score
+"I go to college yesterday",1,45
+"I am go to college",1,40
+"She are my friend",1,42
+"He go to school every day",1,50
+"I has completed my homework",1,48
+"They is playing cricket",1,45
+"I am learning English",0,70
+"I am currently studying engineering",0,75
+"I am studying artificial intelligence",0,78
+"I went to college yesterday",0,82
+"She is my best friend",0,80
+"They are playing cricket",0,80
+"I have completed my homework",0,85
+"I enjoy learning new technologies",0,87
+"I am currently studying artificial intelligence and data science",0,90
+"I want to become a successful data scientist",0,88
+"Yesterday I visited my college and attended a technical seminar",0,92
+"I believe that improving my communication skills will help me in my career",0,94
