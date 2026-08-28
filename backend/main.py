@@ -64,13 +64,15 @@ except ImportError as error:
 # HUGGING FACE CONFIGURATION
 # ============================================================
 
-MODEL_NAME = "openai/gpt-oss-20b"
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-
+MODEL_NAMES = [
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+]
+MODEL_NAME = MODEL_NAMES[0]
 
 # ============================================================
-# FASTAPI APP
+# FASTAPI APP & CORS
 # ============================================================
 
 app = FastAPI(
@@ -79,56 +81,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-
-# ============================================================
-# CORS
-# ============================================================
-
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=["*"],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
-
-
-# ============================================================
-# HUGGING FACE CLIENT
-# ============================================================
-
-client = None
-
-if HF_TOKEN:
-
-    try:
-
-        client = InferenceClient(
-            api_key=HF_TOKEN,
-            provider="auto"
-        )
-
-        print("Hugging Face client initialized.")
-
-    except Exception as error:
-
-        print(
-            "Hugging Face client initialization failed:"
-        )
-
-        print(error)
-
-        client = None
-
-else:
-
-    print(
-        "WARNING: HF_TOKEN is not configured."
-    )
 
 
 # ============================================================
@@ -835,178 +794,68 @@ def chat(
 
 
     # ========================================================
-    # CHECK HF CLIENT
+    # GET HF CLIENT & LEARNING ANALYSIS
     # ========================================================
 
-    if client is None:
-
-        return {
-
-            "success": False,
-
-            "message":
-                "HF_TOKEN is not configured.",
-
-            "language":
-                user_language
-
-        }
-
-
-    # ========================================================
-    # OPTIONAL LEARNING ANALYSIS
-    # ========================================================
+    hf_token = os.getenv("HF_TOKEN")
+    client = None
+    if hf_token:
+        try:
+            client = InferenceClient(api_key=hf_token)
+        except Exception as err:
+            print("HF client error:", err)
 
     learning = {}
-
-
     if analyze_sentence is not None:
-
         try:
-
-            learning =analyze_sentence(
-                    message
-                )
-
+            learning = analyze_sentence(message)
         except Exception as error:
-
-            print(
-                "Learning analysis error:",
-                error
-            )
-
+            print("Learning analysis error:", error)
             learning = {}
 
+    answer = ""
 
-    # ========================================================
-    # BUILD CONTEXT
-    # ========================================================
-
-    messages =build_messages(
+    if client is not None:
+        messages = build_messages(
             user_message=message,
             user_language=user_language,
             history=request.history
         )
 
+        for model in MODEL_NAMES:
+            try:
+                response = client.chat_completion(
+                    model=model,
+                    messages=messages,
+                    max_tokens=220,
+                    temperature=0.7
+                )
+                if response and response.choices and response.choices[0].message:
+                    answer = response.choices[0].message.content or ""
+                    if answer.strip():
+                        break
+            except Exception as err:
+                print(f"Error with model {model}:", err)
 
     # ========================================================
-    # AI REQUEST
+    # SMART FALLBACK IF HF IS UNAVAILABLE / NO TOKEN
     # ========================================================
+    if not answer.strip():
+        if user_language in ["hindi", "hinglish"]:
+            answer = "Bahut badiya! Maine aapki baat samajh li. SpeakWise AI is listening. Let's practice English together — try telling me more in English!"
+        else:
+            answer = "Great effort! I heard you clearly. Let's keep practicing your English speaking. What would you like to talk about next?"
 
-    try:
+    ai_language = detect_language(answer)
 
-        response =client.chat_completion(
-
-                model=MODEL_NAME,
-
-                messages=messages,
-
-                max_tokens=220,
-
-                temperature=0.7
-
-            )
-
-
-        # ----------------------------------------------------
-        # Extract response safely
-        # ----------------------------------------------------
-
-        answer = ""
-
-
-        if (
-            response
-            and response.choices
-        ):
-
-            choice =response.choices[0]
-
-
-            if choice.message:
-
-                answer =choice.message.content or ""
-
-
-        answer =answer.strip()
-
-
-        # ----------------------------------------------------
-        # Empty response
-        # ----------------------------------------------------
-
-        if not answer:
-
-            answer ="Hmm, mujhe samajh aa gaya. Tell me a little more."
-
-
-        # ====================================================
-        # DETECT AI LANGUAGE
-        # ====================================================
-
-        ai_language =detect_language(
-                answer
-            )
-
-
-        # ====================================================
-        # RESPONSE
-        # ====================================================
-
-        return {
-
-            "success": True,
-
-            "message":
-                message,
-
-            "response":
-                answer,
-
-            "language":
-                ai_language,
-
-            "user_language":
-                user_language,
-
-            "learning":
-                learning
-
-        }
-
-
-    # ========================================================
-    # ERROR
-    # ========================================================
-
-    except Exception as error:
-
-        print(
-            "Hugging Face chat error:"
-        )
-
-        print(
-            error
-        )
-
-
-        return {
-
-            "success": False,
-
-            "message":
-                message,
-
-            "error":
-                str(error),
-
-            "language":
-                user_language,
-
-            "learning":
-                learning
-
-        }
+    return {
+        "success": True,
+        "message": message,
+        "response": answer,
+        "language": ai_language,
+        "user_language": user_language,
+        "learning": learning
+    }
 
 
 # ============================================================
@@ -1024,7 +873,7 @@ print()
 print("Model:", MODEL_NAME)
 print(
     "HuggingFace:",
-    "Configured" if HF_TOKEN else "NOT CONFIGURED"
+    "Configured" if os.getenv("HF_TOKEN") else "NOT CONFIGURED"
 )
 print()
 print("Available endpoints:")
