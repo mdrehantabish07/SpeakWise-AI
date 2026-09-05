@@ -32,6 +32,7 @@ if ROOT_DIR not in sys.path:
 
 try:
     from speakwise_engine import analyze
+
 except ImportError as error:
 
     print(
@@ -49,6 +50,7 @@ except ImportError as error:
 
 try:
     from nlp.learning_assistant import analyze_sentence
+
 except ImportError as error:
 
     print(
@@ -69,7 +71,15 @@ MODEL_NAMES = [
     "Qwen/Qwen2.5-7B-Instruct",
     "mistralai/Mistral-7B-Instruct-v0.3",
 ]
+
 MODEL_NAME = MODEL_NAMES[0]
+
+# IMPORTANT:
+# Read Hugging Face token from environment variable.
+# Never hard-code the token in this file.
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+
 
 # ============================================================
 # FASTAPI APP & CORS
@@ -80,6 +90,7 @@ app = FastAPI(
     description="AI English Communication Learning Platform",
     version="1.0.0"
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -124,7 +135,6 @@ class AnalyzeRequest(BaseModel):
 def detect_language(text: str) -> str:
 
     if not text:
-
         return "english"
 
 
@@ -181,6 +191,7 @@ def detect_language(text: str) -> str:
 
         "kyun",
         "kyu",
+        "kyon",
 
         "hai",
         "hain",
@@ -294,7 +305,6 @@ def detect_language(text: str) -> str:
 
 
     if not words:
-
         return "english"
 
 
@@ -310,17 +320,12 @@ def detect_language(text: str) -> str:
     # --------------------------------------------------------
 
     if hindi_count >= 2:
-
         return "hinglish"
 
 
     if hindi_count == 1:
 
-        # If message contains multiple words,
-        # one Hindi word usually indicates Hinglish.
-
         if len(words) >= 3:
-
             return "hinglish"
 
 
@@ -533,9 +538,6 @@ def build_messages(
     # Language instruction
     # --------------------------------------------------------
 
-    language_instruction = ""
-
-
     if user_language == "hindi":
 
         language_instruction = """
@@ -599,7 +601,6 @@ and reply naturally in the same language style.
 
 
         if not content:
-
             continue
 
 
@@ -711,7 +712,6 @@ def analyze_api(
 
         result = analyze(sentence)
 
-
         return result
 
 
@@ -758,15 +758,20 @@ def chat(
     # DETECT LANGUAGE
     # ========================================================
 
-    requested_language =request.language.strip().lower()
+    requested_language = (
+        request.language
+        .strip()
+        .lower()
+    )
 
 
-    detected_language =detect_language(message)
+    detected_language = detect_language(
+        message
+    )
 
 
     # --------------------------------------------------------
-    # If frontend provides a valid language,
-    # respect it.
+    # Respect valid frontend language
     # --------------------------------------------------------
 
     if requested_language in {
@@ -775,11 +780,11 @@ def chat(
         "english"
     }:
 
-        user_language =requested_language
+        user_language = requested_language
 
     else:
 
-        user_language =detected_language
+        user_language = detected_language
 
 
     print(
@@ -794,67 +799,164 @@ def chat(
 
 
     # ========================================================
-    # GET HF CLIENT & LEARNING ANALYSIS
+    # GET HF CLIENT
     # ========================================================
 
     hf_token = os.getenv("HF_TOKEN")
+
     client = None
+
+
     if hf_token:
+
         try:
-            client = InferenceClient(api_key=hf_token)
+
+            client = InferenceClient(
+                api_key=hf_token
+            )
+
         except Exception as err:
-            print("HF client error:", err)
+
+            print(
+                "HF client error:",
+                err
+            )
+
+
+    # ========================================================
+    # LEARNING ANALYSIS
+    # ========================================================
 
     learning = {}
+
+
     if analyze_sentence is not None:
+
         try:
-            learning = analyze_sentence(message)
+
+            learning = analyze_sentence(
+                message
+            )
+
         except Exception as error:
-            print("Learning analysis error:", error)
+
+            print(
+                "Learning analysis error:",
+                error
+            )
+
             learning = {}
+
+
+    # ========================================================
+    # AI ANSWER
+    # ========================================================
 
     answer = ""
 
+
     if client is not None:
+
         messages = build_messages(
             user_message=message,
             user_language=user_language,
             history=request.history
         )
 
+
         for model in MODEL_NAMES:
+
             try:
+
                 response = client.chat_completion(
                     model=model,
                     messages=messages,
                     max_tokens=220,
                     temperature=0.7
                 )
-                if response and response.choices and response.choices[0].message:
-                    answer = response.choices[0].message.content or ""
+
+
+                if (
+                    response
+                    and response.choices
+                    and response.choices[0].message
+                ):
+
+                    answer = (
+                        response
+                        .choices[0]
+                        .message
+                        .content
+                        or ""
+                    )
+
+
                     if answer.strip():
                         break
+
+
             except Exception as err:
-                print(f"Error with model {model}:", err)
+
+                print(
+                    f"Error with model {model}:",
+                    err
+                )
+
 
     # ========================================================
-    # SMART FALLBACK IF HF IS UNAVAILABLE / NO TOKEN
+    # SMART FALLBACK
     # ========================================================
+
     if not answer.strip():
-        if user_language in ["hindi", "hinglish"]:
-            answer = "Bahut badiya! Maine aapki baat samajh li. SpeakWise AI is listening. Let's practice English together — try telling me more in English!"
-        else:
-            answer = "Great effort! I heard you clearly. Let's keep practicing your English speaking. What would you like to talk about next?"
 
-    ai_language = detect_language(answer)
+        if user_language in [
+            "hindi",
+            "hinglish"
+        ]:
+
+            answer = (
+                "Bahut badiya! Maine aapki baat samajh li. "
+                "SpeakWise AI is listening. "
+                "Let's practice English together — "
+                "try telling me more in English!"
+            )
+
+        else:
+
+            answer = (
+                "Great effort! I heard you clearly. "
+                "Let's keep practicing your English speaking. "
+                "What would you like to talk about next?"
+            )
+
+
+    # ========================================================
+    # AI LANGUAGE
+    # ========================================================
+
+    ai_language = detect_language(
+        answer
+    )
+
+
+    # ========================================================
+    # RESPONSE
+    # ========================================================
 
     return {
+
         "success": True,
+
         "message": message,
+
         "response": answer,
+
         "language": ai_language,
+
         "user_language": user_language,
+
         "learning": learning
+
     }
 
 
@@ -863,22 +965,64 @@ def chat(
 # ============================================================
 
 print()
-print("==========================================")
-print("             SPEAKWISE AI")
-print("             FASTAPI BACKEND")
-print("==========================================")
+
+print(
+    "=========================================="
+)
+
+print(
+    "             SPEAKWISE AI"
+)
+
+print(
+    "             FASTAPI BACKEND"
+)
+
+print(
+    "=========================================="
+)
+
 print()
-print("Backend ready.")
+
+print(
+    "Backend ready."
+)
+
 print()
-print("Model:", MODEL_NAME)
+
+print(
+    "Model:",
+    MODEL_NAME
+)
+
 print(
     "HuggingFace:",
-    "Configured" if os.getenv("HF_TOKEN") else "NOT CONFIGURED"
+    "Configured"
+    if HF_TOKEN
+    else
+    "NOT CONFIGURED"
 )
+
 print()
-print("Available endpoints:")
-print("GET  /")
-print("GET  /health")
-print("POST /analyze")
-print("POST /chat")
+
+print(
+    "Available endpoints:"
+)
+
+print(
+    "GET  /"
+)
+
+print(
+    "GET  /health"
+)
+
+print(
+    "POST /analyze"
+)
+
+print(
+    "POST /chat"
+)
+
 print()
