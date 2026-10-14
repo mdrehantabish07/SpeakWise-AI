@@ -1,31 +1,36 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+      "source": "/health",
+      "destination": "https://speakwise-ai-1.onrender.com/health"
     },
     {
-      "src": "frontend/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(analyze|chat|health)",
-      "dest": "/api/index.py"
+      "source": "/api/health",
+      "destination": "https://speakwise-ai-1.onrender.com/api/health"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.py"
+      "source": "/chat",
+      "destination": "https://speakwise-ai-1.onrender.com/chat"
     },
     {
-      "src": "/",
-      "dest": "/frontend/index.html"
+      "source": "/api/chat",
+      "destination": "https://speakwise-ai-1.onrender.com/api/chat"
     },
     {
-      "src": "/(.*)",
-      "dest": "/frontend/$1"
+      "source": "/analyze",
+      "destination": "https://speakwise-ai-1.onrender.com/analyze"
+    },
+    {
+      "source": "/api/analyze",
+      "destination": "https://speakwise-ai-1.onrender.com/api/analyze"
+    },
+    {
+      "source": "/",
+      "destination": "/frontend/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend/$1"
     }
   ]
 }
