@@ -15,12 +15,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# Google Gemini SDK
 try:
-    from openai import OpenAI
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
 except ImportError:
-    OpenAI = None
+    genai = None
+    GENAI_AVAILABLE = False
 
-# Configure logging (Never log tokens or credentials)
+# Configure logging (Never log keys or credentials)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -36,7 +39,6 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
-
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
@@ -57,36 +59,83 @@ except ImportError as error:
     analyze_sentence = None
 
 # ============================================================
-# HUGGING FACE ROUTER CONFIGURATION
+# GEMINI CONFIGURATION
 # ============================================================
 
-MODEL_NAME = "CohereLabs/aya-expanse-32b:cohere"
-HF_ROUTER_BASE_URL = "https://router.huggingface.co/v1"
+# Model: gemini-2.0-flash — free tier: 15 RPM, 1 500 req/day, 1M tokens/day
+# Fallback:  gemini-1.5-flash — free tier: 15 RPM, 1 500 req/day
+GEMINI_PRIMARY_MODEL   = "gemini-2.0-flash"
+GEMINI_FALLBACK_MODEL  = "gemini-1.5-flash"
+ACTIVE_MODEL           = GEMINI_PRIMARY_MODEL   # updated at startup if needed
+PROVIDER               = "google_gemini"
 
-def get_hf_token() -> Optional[str]:
-    """Retrieve Hugging Face token from environment variables."""
-    token = (
-        os.getenv("HF_TOKEN") or
-        os.getenv("HUGGINGFACE_API_KEY") or
-        os.getenv("HUGGINGFACEHUB_API_TOKEN") or
-        os.getenv("HF_API_KEY")
+def get_gemini_key() -> Optional[str]:
+    """Retrieve Gemini API key from environment variables."""
+    key = (
+        os.getenv("GEMINI_API_KEY") or
+        os.getenv("GOOGLE_API_KEY") or
+        os.getenv("GOOGLE_GEMINI_KEY")
     )
-    if token:
-        token = token.strip()
-    return token or None
+    return key.strip() if key else None
 
-def create_ai_client() -> OpenAI:
-    """Create OpenAI-compatible client pointing to Hugging Face router."""
-    token = get_hf_token()
-    if not token:
-        raise RuntimeError("HF_TOKEN is not configured on the backend.")
-    if OpenAI is None:
-        raise RuntimeError("openai Python SDK is not installed.")
-    return OpenAI(
-        base_url=HF_ROUTER_BASE_URL,
-        api_key=token,
-        timeout=25.0
-    )
+
+def init_gemini() -> Optional[object]:
+    """
+    Configure the google-generativeai SDK and return a GenerativeModel instance.
+    Returns None and logs a warning if the key is absent or SDK is missing.
+    """
+    if not GENAI_AVAILABLE:
+        logger.error("google-generativeai package is not installed.")
+        return None
+
+    key = get_gemini_key()
+    if not key:
+        logger.warning(
+            "GEMINI_API_KEY is not set. AI chat will be unavailable until the key "
+            "is configured in the backend environment variables."
+        )
+        return None
+
+    genai.configure(api_key=key)
+
+    # Try primary model, fall back gracefully
+    global ACTIVE_MODEL
+    for model_name in (GEMINI_PRIMARY_MODEL, GEMINI_FALLBACK_MODEL):
+        try:
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 300,
+                    "top_p": 0.9,
+                },
+                safety_settings=[
+                    {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_ONLY_HIGH"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_ONLY_HIGH"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+                ]
+            )
+            ACTIVE_MODEL = model_name
+            logger.info("Gemini model initialised: %s", model_name)
+            return model
+        except Exception as err:
+            logger.warning("Could not initialise model %s: %s", model_name, err)
+
+    logger.error("All Gemini models failed to initialise.")
+    return None
+
+
+# Initialise once at import time
+_gemini_model = init_gemini()
+
+
+def get_gemini_model():
+    """Return the cached Gemini model, or reinitialise if it was never created."""
+    global _gemini_model
+    if _gemini_model is None:
+        _gemini_model = init_gemini()
+    return _gemini_model
 
 # ============================================================
 # FASTAPI APP & CORS
@@ -94,8 +143,8 @@ def create_ai_client() -> OpenAI:
 
 app = FastAPI(
     title="SpeakWise AI",
-    description="AI English Communication Learning Platform",
-    version="1.0.0"
+    description="AI English Communication Learning Platform — powered by Google Gemini",
+    version="2.0.0"
 )
 
 ORIGINS = [
@@ -174,23 +223,19 @@ HINDI_WORDS = {
 def detect_language(text: str) -> str:
     if not text:
         return "english"
-
-    # Hindi Devanagari script check
     if re.search(r"[\u0900-\u097F]", text):
         return "hindi"
-
     lower_text = text.lower().strip()
     words = re.findall(r"[a-zA-Z]+", lower_text)
     if not words:
         return "english"
-
-    hindi_count = sum(1 for word in words if word in HINDI_WORDS)
-
+    hindi_count = sum(1 for w in words if w in HINDI_WORDS)
     if hindi_count >= 2:
         return "hinglish"
-    if hindi_count == 1 and (len(words) >= 2 or words[0] in {"kya", "kaise", "haan", "nahi", "khana", "mujhe"}):
+    if hindi_count == 1 and (
+        len(words) >= 2 or words[0] in {"kya", "kaise", "haan", "nahi", "khana", "mujhe"}
+    ):
         return "hinglish"
-
     return "english"
 
 # ============================================================
@@ -200,47 +245,51 @@ def detect_language(text: str) -> str:
 SYSTEM_PROMPT = """You are SpeakWise AI, a friendly and encouraging AI conversation partner dedicated to helping people practice English speaking and communication.
 
 Key Guidelines:
-1. Natural Conversation: Treat every interaction like a friendly, supportive conversation. Keep replies concise (typically 2 to 3 sentences).
-2. Follow-up Question: Always keep the conversation active by asking ONE natural, engaging follow-up question.
+1. Natural Conversation: Keep replies concise (2–3 sentences). Be warm, supportive, and motivating.
+2. Follow-up Question: Always end with ONE natural follow-up question to keep the conversation active.
 3. Language Support:
-   - If the user writes in English, reply in clear, friendly English.
-   - If the user writes in Hindi or Hinglish (Roman Hindi), reply naturally in Hinglish/Hindi so they feel understood, while gently weaving in simple English phrases to encourage their learning.
-   - If the user specifically asks to practice in English, use simple English.
-4. Gentle English Learning:
-   - When the user makes an English grammatical mistake, gently acknowledge the correct way (e.g. "Better: 'I went to college today' 😊") and continue the conversation smoothly.
-   - Do NOT lecture or give long grammar lessons unless specifically asked.
-5. Tone: Warm, positive, supportive, and motivating."""
+   - English input → reply in clear, simple English.
+   - Hindi input (Devanagari or Hinglish/Roman Hindi) → reply naturally in Hinglish so the user feels comfortable, while gently weaving in English phrases to encourage learning.
+   - If the user asks to practice English specifically, switch to simple English.
+4. Gentle English Coaching:
+   - If the user makes a grammatical error in English, gently note the correct form (e.g., "Quick tip: 'I went to college today' 😊") and continue smoothly.
+   - Do NOT give long grammar lectures unless specifically asked.
+5. Tone: Warm, positive, and encouraging."""
 
-def build_messages(user_message: str, user_language: str, history: List[ChatMessage]) -> list:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # Language instruction
+def build_gemini_prompt(user_message: str, user_language: str, history: List[ChatMessage]) -> str:
+    """
+    Build a single text prompt for Gemini (non-chat-session mode) that includes
+    system instructions, recent conversation history, and the current user message.
+    """
+    # Language-specific instruction
     if user_language == "hindi":
-        messages.append({
-            "role": "system",
-            "content": "The user is communicating in Hindi. Reply in friendly, natural Hindi."
-        })
+        lang_note = "The user is writing in Hindi. Reply in friendly, natural Hindi."
     elif user_language == "hinglish":
-        messages.append({
-            "role": "system",
-            "content": "The user is communicating in Hinglish (Roman Hindi). Reply naturally in Hinglish and encourage English practice."
-        })
-    elif user_language == "english":
-        messages.append({
-            "role": "system",
-            "content": "The user is communicating in English. Reply in clear, simple English and encourage their practice."
-        })
+        lang_note = "The user is writing in Hinglish (Roman Hindi). Reply naturally in Hinglish and encourage English practice."
+    else:
+        lang_note = "The user is writing in English. Reply in clear, simple English."
 
-    # Recent history turns (up to 10)
-    for item in history[-10:]:
-        role = item.role.lower().strip()
-        content = item.content.strip()
-        if role in {"user", "assistant"} and content:
-            messages.append({"role": role, "content": content})
+    parts = [
+        SYSTEM_PROMPT,
+        f"\nLanguage context: {lang_note}\n",
+    ]
 
-    # Current user message
-    messages.append({"role": "user", "content": user_message})
-    return messages
+    # Include up to last 8 conversation turns
+    if history:
+        parts.append("Recent conversation:")
+        for msg in history[-8:]:
+            role = msg.role.lower().strip()
+            content = msg.content.strip()
+            if role == "user":
+                parts.append(f"User: {content}")
+            elif role == "assistant":
+                parts.append(f"SpeakWise AI: {content}")
+
+    parts.append(f"\nUser: {user_message}")
+    parts.append("SpeakWise AI:")
+
+    return "\n".join(parts)
 
 # ============================================================
 # ROOT & STATIC ASSETS
@@ -255,13 +304,13 @@ def home(request: Request):
         index_file = os.path.join(FRONTEND_DIR, "index.html")
         if os.path.isfile(index_file):
             return FileResponse(index_file)
-
     return {
         "status": "online",
         "name": "SpeakWise AI",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "message": "SpeakWise backend is running.",
-        "model": MODEL_NAME
+        "model": ACTIVE_MODEL,
+        "provider": PROVIDER,
     }
 
 @app.get("/api")
@@ -269,8 +318,8 @@ def api_root():
     return {
         "status": "online",
         "name": "SpeakWise AI",
-        "version": "1.0.0",
-        "message": "SpeakWise backend is running."
+        "version": "2.0.0",
+        "message": "SpeakWise backend is running.",
     }
 
 @app.get("/{filename}.{ext}")
@@ -280,7 +329,10 @@ def serve_static_assets(filename: str, ext: str):
         target = os.path.join(FRONTEND_DIR, file_name)
         if os.path.isfile(target):
             return FileResponse(target)
-    return JSONResponse(status_code=404, content={"status": "error", "message": f"{file_name} not found"})
+    return JSONResponse(
+        status_code=404,
+        content={"status": "error", "message": f"{file_name} not found"}
+    )
 
 # ============================================================
 # HEALTH ENDPOINTS
@@ -289,12 +341,19 @@ def serve_static_assets(filename: str, ext: str):
 @app.get("/health")
 @app.get("/api/health")
 def health():
-    token = get_hf_token()
+    key_present = get_gemini_key() is not None
+    sdk_present = GENAI_AVAILABLE
     return {
         "status": "healthy",
-        "huggingface_configured": token is not None,
-        "model": MODEL_NAME,
-        "provider": "huggingface_router"
+        "gemini_key_configured": key_present,
+        "gemini_sdk_installed": sdk_present,
+        "model": ACTIVE_MODEL,
+        "provider": PROVIDER,
+        "free_tier_limits": {
+            "requests_per_minute": 15,
+            "requests_per_day": 1500,
+            "tokens_per_day": "1 million",
+        },
     }
 
 # ============================================================
@@ -311,7 +370,7 @@ def analyze_api(request: AnalyzeRequest):
             content={
                 "success": False,
                 "error_type": "empty_input",
-                "message": "Please enter a sentence to analyze."
+                "message": "Please enter a sentence to analyze.",
             }
         )
 
@@ -321,7 +380,7 @@ def analyze_api(request: AnalyzeRequest):
             content={
                 "success": False,
                 "error_type": "service_unavailable",
-                "message": "Learning analysis engine is currently unavailable."
+                "message": "Learning analysis engine is currently unavailable.",
             }
         )
 
@@ -336,7 +395,7 @@ def analyze_api(request: AnalyzeRequest):
                 "success": False,
                 "error_type": "analysis_error",
                 "message": "Sentence analysis failed.",
-                "error": str(error)
+                "error": str(error),
             }
         )
 
@@ -354,91 +413,111 @@ def chat(request: ChatRequest):
             content={
                 "success": False,
                 "error_type": "empty_message",
-                "message": "Please enter a message."
+                "message": "Please enter a message.",
             }
         )
 
-    hf_token = get_hf_token()
-    if not hf_token:
-        logger.warning("Chat request failed: HF_TOKEN is not configured.")
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "success": False,
-                "error_type": "missing_configuration",
-                "status_code": 503,
-                "message": "HF_TOKEN is not configured on the backend. Please configure your Hugging Face API token in environment variables.",
-                "provider": "huggingface"
-            }
-        )
-
-    if OpenAI is None:
-        logger.error("Chat request failed: openai package is not installed.")
+    # ── Preflight checks ──────────────────────────────────────
+    if not GENAI_AVAILABLE:
+        logger.error("google-generativeai package is not installed on the server.")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "success": False,
                 "error_type": "dependency_error",
-                "status_code": 500,
-                "message": "The official 'openai' Python SDK is not installed on the backend server.",
-                "provider": "huggingface"
+                "message": (
+                    "The google-generativeai Python package is not installed on the backend. "
+                    "Add 'google-generativeai>=0.8.0' to requirements.txt and redeploy."
+                ),
+                "provider": PROVIDER,
             }
         )
 
-    # Determine user language
-    requested_language = request.language.strip().lower()
-    detected_language = detect_language(message)
-    if requested_language in {"hindi", "hinglish", "english"}:
-        user_language = requested_language
-    else:
-        user_language = detected_language
+    if not get_gemini_key():
+        logger.warning("Chat request rejected: GEMINI_API_KEY not configured.")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "success": False,
+                "error_type": "missing_configuration",
+                "message": (
+                    "GEMINI_API_KEY is not set on the backend. "
+                    "Add it as an environment variable on Render (Dashboard → Environment) "
+                    "and redeploy the service. Get a free key at https://aistudio.google.com."
+                ),
+                "provider": PROVIDER,
+            }
+        )
 
-    # Run optional learning analysis on input
+    # ── Language detection ────────────────────────────────────
+    requested_language = request.language.strip().lower()
+    detected_language  = detect_language(message)
+    user_language = (
+        requested_language if requested_language in {"hindi", "hinglish", "english"}
+        else detected_language
+    )
+
+    # ── Optional learning analysis ────────────────────────────
     learning = {}
     if analyze_sentence is not None:
         try:
             learning = analyze_sentence(message)
-        except Exception as error:
-            logger.debug("Sentence analysis during chat error: %s", error)
-            learning = {}
+        except Exception as err:
+            logger.debug("analyze_sentence error: %s", err)
 
-    # Build prompt messages
-    messages = build_messages(
+    # ── Build prompt ──────────────────────────────────────────
+    prompt = build_gemini_prompt(
         user_message=message,
         user_language=user_language,
-        history=request.history
+        history=request.history,
     )
 
-    # Create client
-    try:
-        client = create_ai_client()
-    except Exception as err:
-        logger.error("Failed to create AI client: %s", err)
+    # ── Call Gemini API ───────────────────────────────────────
+    model = get_gemini_model()
+    if model is None:
+        logger.error("Gemini model is not available despite key being set.")
         return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "success": False,
-                "error_type": "client_initialization_error",
-                "message": str(err),
-                "provider": "huggingface"
+                "error_type": "model_init_error",
+                "message": "Gemini model could not be initialised. Check server logs.",
+                "provider": PROVIDER,
             }
         )
 
-    # Attempt AI chat completion
     try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            max_tokens=250,
-            temperature=0.7
-        )
+        gemini_response = model.generate_content(prompt)
 
-        if not response or not response.choices or not response.choices[0].message:
-            raise RuntimeError("Received empty choices from Hugging Face router.")
+        # Extract text safely
+        answer = ""
+        try:
+            answer = gemini_response.text.strip()
+        except Exception:
+            # Fallback: iterate parts
+            for part in (gemini_response.parts or []):
+                if hasattr(part, "text") and part.text:
+                    answer += part.text
 
-        answer = (response.choices[0].message.content or "").strip()
+        answer = answer.strip()
+
         if not answer:
-            raise RuntimeError("Model returned empty response content.")
+            # Check for safety blocks
+            block_reason = None
+            try:
+                block_reason = str(gemini_response.prompt_feedback)
+            except Exception:
+                pass
+            logger.warning("Gemini returned empty response. Feedback: %s", block_reason)
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "success": False,
+                    "error_type": "empty_response",
+                    "message": "The AI returned an empty response. This may be due to safety filters. Please rephrase your message.",
+                    "provider": PROVIDER,
+                }
+            )
 
         ai_language = detect_language(answer)
 
@@ -448,100 +527,86 @@ def chat(request: ChatRequest):
             "response": answer,
             "language": ai_language,
             "user_language": user_language,
-            "model": MODEL_NAME,
-            "learning": learning
+            "model": ACTIVE_MODEL,
+            "provider": PROVIDER,
+            "learning": learning,
         }
 
     except Exception as err:
-        # Extract status code and sanitize error message (Never leak tokens)
-        err_status = getattr(err, "status_code", None)
         err_str = str(err)
-        if hf_token and hf_token in err_str:
-            err_str = err_str.replace(hf_token, "[REDACTED_TOKEN]")
 
-        logger.error("Hugging Face API request failed (status=%s): %s", err_status, err_str)
+        # Never leak the API key in error messages
+        api_key = get_gemini_key()
+        if api_key and api_key in err_str:
+            err_str = err_str.replace(api_key, "[REDACTED]")
 
-        # 402: Insufficient credits on Hugging Face account
-        if err_status == 402 or "credits" in err_str.lower():
+        logger.error("Gemini API error: %s", err_str)
+
+        # Quota exhausted (HTTP 429 / RESOURCE_EXHAUSTED)
+        if any(kw in err_str.lower() for kw in ("429", "quota", "resource_exhausted", "rate limit")):
             return JSONResponse(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "success": False,
-                    "error_type": "insufficient_credits",
-                    "status_code": 402,
-                    "model": MODEL_NAME,
-                    "provider": "huggingface",
-                    "message": "Hugging Face account inference credits exhausted (HTTP 402). Purchase pre-paid credits or subscribe to PRO on Hugging Face to enable live AI responses.",
-                    "action_required": "Please add credits at https://huggingface.co/settings/billing or upgrade to PRO."
+                    "error_type": "quota_exceeded",
+                    "message": (
+                        "Google Gemini free-tier quota reached (15 requests/min or 1 500 req/day). "
+                        "Please wait a moment and try again. "
+                        "Free limits reset every minute (RPM) and every day at midnight Pacific time."
+                    ),
+                    "provider": PROVIDER,
+                    "model": ACTIVE_MODEL,
                 }
             )
 
-        # 401: Invalid token
-        if err_status == 401 or "unauthorized" in err_str.lower():
+        # Invalid API key / permission denied
+        if any(kw in err_str.lower() for kw in ("401", "403", "api_key", "invalid", "permission", "unauthenticated")):
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={
                     "success": False,
                     "error_type": "authentication_error",
-                    "status_code": 401,
-                    "model": MODEL_NAME,
-                    "provider": "huggingface",
-                    "message": "Invalid Hugging Face API token. Please verify your HF_TOKEN configuration."
+                    "message": (
+                        "GEMINI_API_KEY is invalid or has been revoked. "
+                        "Generate a new key at https://aistudio.google.com/apikey and update "
+                        "the environment variable on Render."
+                    ),
+                    "provider": PROVIDER,
                 }
             )
 
-        # 429: Rate limited
-        if err_status == 429 or "rate limit" in err_str.lower():
+        # Model not found / deprecated
+        if any(kw in err_str.lower() for kw in ("404", "not found", "model")):
             return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "success": False,
-                    "error_type": "rate_limited",
-                    "status_code": 429,
-                    "model": MODEL_NAME,
-                    "provider": "huggingface",
-                    "message": "Hugging Face rate limit reached. Please wait a moment and try again."
-                }
-            )
-
-        # 400: Model not supported / bad request
-        if err_status == 400 or "not supported" in err_str.lower():
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
                     "success": False,
                     "error_type": "model_unavailable",
-                    "status_code": 400,
-                    "model": MODEL_NAME,
-                    "provider": "huggingface",
-                    "message": f"Requested AI model '{MODEL_NAME}' is currently unavailable on Hugging Face router."
+                    "message": f"Gemini model '{ACTIVE_MODEL}' is not available. Check Google AI Studio for current model names.",
+                    "provider": PROVIDER,
                 }
             )
 
         # Timeout
-        if "timeout" in err_str.lower() or "timed out" in err_str.lower():
+        if any(kw in err_str.lower() for kw in ("timeout", "timed out", "deadline")):
             return JSONResponse(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 content={
                     "success": False,
                     "error_type": "timeout",
-                    "status_code": 504,
-                    "model": MODEL_NAME,
-                    "provider": "huggingface",
-                    "message": "AI model request timed out. Please try sending your message again."
+                    "message": "The Gemini API request timed out. Please try again.",
+                    "provider": PROVIDER,
                 }
             )
 
-        # Generic provider error
+        # Generic error — surface a sanitised message, no fake responses
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "success": False,
                 "error_type": "provider_error",
-                "status_code": 503,
-                "model": MODEL_NAME,
-                "provider": "huggingface",
-                "message": "Hugging Face inference service error. Please try again in a few moments."
+                "message": f"Gemini API error: {err_str[:200]}",
+                "provider": PROVIDER,
             }
         )
 
@@ -549,4 +614,7 @@ def chat(request: ChatRequest):
 # SERVER STARTUP LOG
 # ============================================================
 
-logger.info("SpeakWise AI Backend initialized with model: %s", MODEL_NAME)
+logger.info(
+    "SpeakWise AI Backend v2.0 initialised — provider: %s, model: %s, sdk: %s",
+    PROVIDER, ACTIVE_MODEL, GENAI_AVAILABLE
+)
