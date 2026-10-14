@@ -64,6 +64,20 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.*
+!.env.example
+
+# Python cache & virtualenvs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+build/
+dist/
+*.spec
 
 # dataconnect generated files
 .dataconnect
+

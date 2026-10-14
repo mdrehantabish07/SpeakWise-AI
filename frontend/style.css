@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 /* ==================================================
    SPEAKWISE AI
    COMPLETE FRONTEND STYLE
@@ -2065,3 +2067,111 @@ textarea:focus {
 .auth-message.hidden {
     display: none !important;
 }
+
+/* ==================================================
+   CHAT ENHANCEMENTS: ERROR CARDS & RETRY
+================================================== */
+
+.chat-error-message {
+    max-width: 85%;
+    padding: 14px 16px;
+    border-radius: 14px;
+    margin-bottom: 12px;
+    background: #fff5f5;
+    border: 1px solid #fed7d7;
+    color: #9b2c2c;
+    font-size: 13.5px;
+    line-height: 1.5;
+    box-shadow: 0 4px 12px rgba(229, 62, 62, 0.06);
+}
+
+.chat-error-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #c53030;
+}
+
+.chat-error-body {
+    margin-bottom: 10px;
+    color: #4a5568;
+}
+
+.retry-button {
+    background: #c53030;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.retry-button:hover {
+    background: #9b2c2c;
+    transform: translateY(-1px);
+}
+
+.chat-input button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.thinking-bubble {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-style: italic;
+    color: #718096;
+}
+
+.thinking-dot {
+    width: 6px;
+    height: 6px;
+    background: #a0aec0;
+    border-radius: 50%;
+    animation: thinkingDot 1.4s infinite ease-in-out both;
+}
+
+.thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+.thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes thinkingDot {
+    0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* ==================================================
+   TEXT TO SPEECH TOGGLE & CONTROLS
+================================================== */
+
+.tts-toggle-btn {
+    background: transparent;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #4a5568;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: 0.2s;
+}
+
+.tts-toggle-btn:hover {
+    background: #edf2f7;
+}
+
+.card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}

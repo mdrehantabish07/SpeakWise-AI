@@ -17,6 +17,10 @@
 
     <title>SpeakWise AI</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <link
         rel="stylesheet"
         href="style.css"
@@ -321,7 +325,23 @@
                     </div>
 
 
+                    <div class="card-header-actions">
+
+                        <button
+                            type="button"
+                            id="ttsToggleBtn"
+                            class="tts-toggle-btn"
+                            onclick="toggleSpeech()"
+                            title="Toggle Text to Speech"
+                        >
+                            🔊 Speech: On
+                        </button>
+
+                    </div>
+
+
                 </div>
+
 
 
                 <div
@@ -1066,11 +1086,6 @@
     src="script.js"
 ></script>
 
-
 </body>
 
-</html>
-
-<script src="script.js"></script>
-</body>
 </html>

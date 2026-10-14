@@ -2,7 +2,121 @@
 // SPEAKWISE AI - COMPLETE FRONTEND
 // ==================================================
 
-const API_URL = "https://speakwise-ai-1.onrender.com";
+const REMOTE_BACKEND_URL = "https://speakwise-ai-1.onrender.com";
+
+function escapeHTML(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function escapeQuotes(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'")
+        .replace(/"/g, "&quot;");
+}
+
+function cleanTextForSpeech(text) {
+    if (!text) return "";
+    return text
+        .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, "")
+        .replace(/[*_#`~>\[\]\(\)\{\}\\]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function getCandidateUrls(endpoint) {
+    const ep = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const candidates = [];
+
+    const isHttp = window.location.protocol === "http:" || window.location.protocol === "https:";
+    const origin = window.location.origin;
+
+    if (isHttp && origin && !origin.includes("null") && !origin.startsWith("file:")) {
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            candidates.push(`http://127.0.0.1:8000${ep}`);
+            candidates.push(`http://localhost:8000${ep}`);
+            candidates.push(`http://127.0.0.1:8000/api${ep}`);
+            candidates.push(`http://localhost:8000/api${ep}`);
+            candidates.push(`${origin}${ep}`);
+            candidates.push(`${origin}/api${ep}`);
+        } else {
+            // Vercel / Cloud same-origin
+            candidates.push(`${origin}${ep}`);
+            candidates.push(`${origin}/api${ep}`);
+        }
+    }
+
+    // Remote Render backend
+    candidates.push(`${REMOTE_BACKEND_URL}${ep}`);
+    candidates.push(`${REMOTE_BACKEND_URL}/api${ep}`);
+
+    return [...new Set(candidates)];
+}
+
+async function requestApi(endpoint, body) {
+    const candidates = getCandidateUrls(endpoint);
+    let lastError = null;
+
+    for (const url of candidates) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 22000);
+
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                const err = new Error(errorData.message || `Server returned status ${response.status}`);
+                err.status = response.status;
+                err.data = errorData;
+                lastError = err;
+
+                // Stop immediately if backend reported a specific application status (e.g. 402, 401, 429)
+                if (response.status === 402 || response.status === 401 || response.status === 429 || response.status === 400) {
+                    throw err;
+                }
+                continue;
+            }
+
+            const data = await response.json();
+            if (data && data.success !== false) {
+                return data;
+            } else if (data && data.success === false) {
+                const err = new Error(data.message || "Request failed.");
+                err.status = data.status_code || 400;
+                err.data = data;
+                throw err;
+            }
+        } catch (e) {
+            lastError = e;
+            if (e.status === 402 || e.status === 401 || e.status === 429) {
+                throw e;
+            }
+        }
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
+    throw new Error("Unable to connect to SpeakWise AI backend.");
+}
+
 
 
 // ==================================================
@@ -235,144 +349,144 @@ function updateProfileStats() {
 
 
 // ==================================================
-// CHAT
+// CHAT STATE & FUNCTIONS
 // ==================================================
 
+let isSendingMessage = false;
+let chatConversationHistory = [];
+
 function handleChatKey(event) {
-
-    if (event.key === "Enter") {
-
+    if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-
         sendMessage();
-
     }
-
 }
-
 
 async function sendMessage() {
+    if (isSendingMessage) return;
 
-    const input =
-        document.getElementById(
-            "chatInput"
-        );
+    const input = document.getElementById("chatInput");
+    const sendButton = document.querySelector(".chat-input button");
+    if (!input) return;
 
+    const message = input.value.trim();
+    if (!message) return;
 
-    if (!input) {
+    isSendingMessage = true;
+    if (sendButton) sendButton.disabled = true;
+    input.disabled = true;
 
-        return;
-
-    }
-
-
-    const message =
-        input.value.trim();
-
-
-    if (!message) {
-
-        return;
-
-    }
-
-
-    addUserMessage(
-        message
-    );
-
-
+    addUserMessage(message);
     input.value = "";
 
-
-    const thinking =
-        addBotMessage(
-            "Thinking... 🤔"
-        );
-
+    const thinking = addThinkingMessage();
 
     try {
+        const data = await requestApi("/chat", {
+            message: message,
+            history: chatConversationHistory.slice(-10),
+            language: "auto"
+        });
 
-        const response =
-            await fetch(
-                `${API_URL}/chat`,
-                {
-
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        message: message
-                    })
-
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (thinking) {
-
+        if (thinking && thinking.parentNode) {
             thinking.remove();
-
         }
 
+        const answer = data.response || "Sorry, I couldn't generate a response.";
+        addBotMessage(answer);
 
-        if (!response.ok) {
+        chatConversationHistory.push({ role: "user", content: message });
+        chatConversationHistory.push({ role: "assistant", content: answer });
 
-            throw new Error(
-                data.error ||
-                data.message ||
-                "Server error"
-            );
+        speakText(answer, data.language);
 
-        }
+        saveLearningHistory(message, {
+            analysis: data.learning || {
+                valid: true,
+                fluency_score: 75,
+                grammar: { error_count: 0 }
+            }
+        });
+        loadProgress();
 
-
-        const answer =
-            data.response ||
-            "Sorry, I couldn't generate a response.";
-
-
-        addBotMessage(
-            answer
-        );
-
-
-        speakText(
-            answer
-        );
-
-    }
-
-    catch (error) {
-
-        if (thinking) {
-
+    } catch (error) {
+        if (thinking && thinking.parentNode) {
             thinking.remove();
-
         }
-
-
-        addBotMessage(
-            "❌ Unable to connect to SpeakWise backend."
-        );
-
-
-        console.error(
-            "Chat error:",
-            error
-        );
-
+        console.error("Chat error:", error);
+        addErrorMessage(error, message);
+    } finally {
+        isSendingMessage = false;
+        if (sendButton) sendButton.disabled = false;
+        input.disabled = false;
+        input.focus();
     }
-
 }
+
+function retryMessage(message) {
+    const input = document.getElementById("chatInput");
+    if (input) {
+        input.value = message;
+    }
+    sendMessage();
+}
+
+function addThinkingMessage() {
+    const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return null;
+
+    const div = document.createElement("div");
+    div.className = "bot-message";
+    div.innerHTML = `
+        <div class="message-name">🤖 SpeakWise</div>
+        <div class="thinking-bubble">
+            Thinking<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+        </div>
+    `;
+
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
+}
+
+function addErrorMessage(errorObj, originalMessage) {
+    const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return null;
+
+    const div = document.createElement("div");
+    div.className = "chat-error-message";
+
+    const errStatus = errorObj.status || (errorObj.data && errorObj.data.status_code);
+    const errMsg = (errorObj.data && errorObj.data.message) || errorObj.message || "";
+    const is402 = errStatus === 402 || errMsg.toLowerCase().includes("credits");
+    const is401 = errStatus === 401;
+
+    let title = "⚠️ AI Service Notice";
+    let desc = errMsg || "Unable to receive response from SpeakWise AI.";
+
+    if (is402) {
+        title = "⚠️ Hugging Face Credits Exhausted (HTTP 402)";
+        desc = "The Hugging Face account has exhausted its inference credits. Pre-paid credits or a Hugging Face PRO subscription is required to call live models via the Hugging Face router.";
+    } else if (is401) {
+        title = "⚠️ Hugging Face Authentication Error (HTTP 401)";
+        desc = "Invalid or expired HF_TOKEN configured on backend.";
+    }
+
+    const escapedMsg = escapeQuotes(originalMessage || "");
+
+    div.innerHTML = `
+        <div class="chat-error-header">${title}</div>
+        <div class="chat-error-body">${escapeHTML(desc)}</div>
+        <button type="button" class="retry-button" onclick="retryMessage('${escapedMsg}')">
+            🔄 Retry
+        </button>
+    `;
+
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
+}
+
 
 
 // ==================================================
@@ -500,43 +614,48 @@ function addBotMessage(message) {
 // TEXT TO SPEECH
 // ==================================================
 
-function speakText(text) {
+let speechEnabled = true;
 
-    if (
-        !("speechSynthesis" in window)
-    ) {
-
-        return;
-
+function toggleSpeech() {
+    speechEnabled = !speechEnabled;
+    if (!speechEnabled && ("speechSynthesis" in window)) {
+        window.speechSynthesis.cancel();
     }
+    const btn = document.getElementById("ttsToggleBtn");
+    if (btn) {
+        btn.textContent = speechEnabled ? "🔊 Speech: On" : "🔇 Speech: Muted";
+    }
+}
 
+function speakText(text, lang) {
+    if (!speechEnabled || !("speechSynthesis" in window) || !text) {
+        return;
+    }
 
     window.speechSynthesis.cancel();
 
+    const clean = cleanTextForSpeech(text);
+    if (!clean) return;
 
-    const speech =
-        new SpeechSynthesisUtterance(
-            text
-        );
+    const speech = new SpeechSynthesisUtterance(clean);
+    const voiceLang = (lang === "hindi" || lang === "hi" || detectVoiceLanguage(clean) === "hi") ? "hi" : "en";
 
+    speech.lang = voiceLang === "hi" ? "hi-IN" : "en-IN";
+    speech.rate = 0.95;
+    speech.pitch = 1.0;
 
-    speech.lang =
-        "en-IN";
+    const preferredVoice = getPreferredVoice(voiceLang);
+    if (preferredVoice) {
+        speech.voice = preferredVoice;
+    }
 
+    speech.onerror = function(err) {
+        console.warn("TTS notice:", err);
+    };
 
-    speech.rate =
-        0.95;
-
-
-    speech.pitch =
-        1;
-
-
-    window.speechSynthesis.speak(
-        speech
-    );
-
+    window.speechSynthesis.speak(speech);
 }
+
 
 
 // ==================================================
@@ -611,51 +730,22 @@ async function analyzeSentence() {
         );
 
 
-        const response =
-            await fetch(
-                `${API_URL}/analyze`,
+        const data =
+            await requestApi(
+                "/analyze",
                 {
-
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        sentence: sentence
-                    })
-
+                    sentence: sentence
                 }
             );
-
-
-        const data =
-            await response.json();
-
 
         console.log(
             "Analysis response:",
             data
         );
 
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.message ||
-                data.error ||
-                "Analysis failed"
-            );
-
-        }
-
-
         displayAnalysis(
             data
         );
-
 
         saveLearningHistory(
             sentence,
@@ -1102,28 +1192,40 @@ function createLearningRecognition() {
 
 
     recognition.onerror =
-        function(error) {
+        function(event) {
 
-            console.error(
-                "Learning recognition error:",
-                error
+            const errType =
+                event.error || "";
+
+            console.warn(
+                "Learning recognition event:",
+                errType
             );
 
+            if (errType === "no-speech" || errType === "aborted") {
+                return;
+            }
 
             learningListening =
                 false;
-
 
             const status =
                 document.getElementById(
                     "learningVoiceStatus"
                 );
 
-
             if (status) {
 
-                status.textContent =
-                    "❌ Voice recognition error.";
+                if (errType === "not-allowed" || errType === "service-not-allowed") {
+                    status.textContent =
+                        "⚠️ Mic access blocked. Allow mic in browser.";
+                } else if (errType === "audio-capture") {
+                    status.textContent =
+                        "⚠️ No microphone found.";
+                } else {
+                    status.textContent =
+                        "🎤 Tap to speak";
+                }
 
             }
 
@@ -1523,13 +1625,32 @@ function createVoiceRecognition() {
 
 
     recognition.onerror =
-        function(error) {
+        function(event) {
 
-            console.error(
-                "Voice recognition error:",
-                error
+            const errType =
+                event.error || "";
+
+            console.warn(
+                "Voice recognition event:",
+                errType
             );
 
+            if (errType === "no-speech") {
+                const status =
+                    document.getElementById(
+                        "voiceStatus"
+                    );
+
+                if (status && voiceConversationActive) {
+                    status.textContent =
+                        "🎤 Listening... (Speak whenever you are ready)";
+                }
+                return;
+            }
+
+            if (errType === "aborted") {
+                return;
+            }
 
             voiceListening =
                 false;
@@ -1537,32 +1658,40 @@ function createVoiceRecognition() {
             voiceStarting =
                 false;
 
-
             updateVoiceButton();
-
 
             const status =
                 document.getElementById(
                     "voiceStatus"
                 );
 
-
             if (status) {
 
-                status.textContent =
-                    "❌ Voice recognition error.";
+                if (errType === "not-allowed" || errType === "service-not-allowed") {
+                    status.textContent =
+                        "⚠️ Mic access blocked. Allow mic in browser.";
+                } else if (errType === "audio-capture") {
+                    status.textContent =
+                        "⚠️ No microphone detected. Please connect mic.";
+                } else if (errType === "network") {
+                    status.textContent =
+                        "⚠️ Speech network timeout. Retrying...";
+                } else {
+                    status.textContent =
+                        "🎤 Listening paused. Tap button to speak.";
+                }
 
             }
 
-
             if (
                 voiceConversationActive &&
-                !aiSpeaking
+                !aiSpeaking &&
+                errType !== "not-allowed"
             ) {
 
                 setTimeout(
                     startVoiceListening,
-                    1000
+                    1200
                 );
 
             }
@@ -1930,55 +2059,15 @@ async function sendVoiceMessage(text) {
 
     try {
 
-        const response =
-            await fetch(
-                `${API_URL}/chat`,
+        const data =
+            await requestApi(
+                "/chat",
                 {
-
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-
-                        message:
-                            text,
-
-                        history:
-                            voiceConversationHistory.slice(
-                                0,
-                                -1
-                            ),
-
-                        language:
-                            "auto"
-
-                    })
-
+                    message: text,
+                    history: voiceConversationHistory.slice(0, -1),
+                    language: "auto"
                 }
             );
-
-
-        const data =
-            await response.json();
-
-
-        if (
-            !response.ok ||
-            data.success === false
-        ) {
-
-            throw new Error(
-                data.error ||
-                data.message ||
-                "Backend error"
-            );
-
-        }
-
 
         const answer =
             data.response ||
@@ -2023,27 +2112,35 @@ async function sendVoiceMessage(text) {
             error
         );
 
+        const is402 = error.status === 402 || (error.message && error.message.toLowerCase().includes("credits"));
+        const errNotice = is402
+            ? "⚠️ Hugging Face inference credits exhausted (HTTP 402). Add credits on Hugging Face to enable live AI responses."
+            : `⚠️ ${error.message || "Unable to connect to SpeakWise backend."}`;
 
         if (status) {
-
-            status.textContent =
-                "❌ Unable to connect to SpeakWise.";
-
+            status.textContent = is402 ? "⚠️ HF Credits Exhausted (402)" : "❌ AI service error";
         }
 
-
-        if (
-            voiceConversationActive
-        ) {
-
-            setTimeout(
-                startVoiceListening,
-                1200
-            );
-
+        if (transcript) {
+            transcript.innerHTML = `
+                <strong>You:</strong>
+                ${escapeHTML(text)}
+                <br><br>
+                <div class="chat-error-message" style="margin-top: 10px;">
+                    <div class="chat-error-header">${escapeHTML(errNotice)}</div>
+                    <button type="button" class="retry-button" onclick="sendVoiceMessage('${escapeQuotes(text)}')">
+                        🔄 Retry
+                    </button>
+                </div>
+            `;
         }
+
+        voiceConversationActive = false;
+        voiceListening = false;
+        updateVoiceButton();
 
     }
+
 
 }
 
@@ -2110,22 +2207,33 @@ function speakVoiceResponse(text) {
     }
 
 
+    const clean =
+        cleanTextForSpeech(text);
+
+    if (!clean) {
+        aiSpeaking = false;
+        updateVoiceButton();
+        if (voiceConversationActive) {
+            setTimeout(startVoiceListening, 500);
+        }
+        return;
+    }
+
     const language =
         detectVoiceLanguage(
-            text
+            clean
         );
-
 
     const speech =
         new SpeechSynthesisUtterance(
-            text
+            clean
         );
-
 
     speech.lang =
         language === "hi"
             ? "hi-IN"
             : "en-IN";
+
 
 
     selectedVoice =

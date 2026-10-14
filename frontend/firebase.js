@@ -1245,6 +1245,10 @@ function openProfile() {
 
     }
 
+    if (typeof window.updateProfileStats === "function") {
+        window.updateProfileStats();
+    }
+
 }
 
 
