@@ -1,150 +1,120 @@
+
 import os
 import sys
 import re
 import logging
+from pathlib import Path
 from typing import List, Optional
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
-
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Google Gemini SDK
 try:
-    import google.generativeai as genai
-    GENAI_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except ImportError:
-    genai = None
-    GENAI_AVAILABLE = False
+    Groq = None
+    GROQ_AVAILABLE = False
 
-# Configure logging (Never log keys or credentials)
+
+# ------------------------------------------------------------
+# LOGGING
+# ------------------------------------------------------------
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("speakwise.backend")
 
-# ============================================================
-# PATH CONFIGURATION
-# ============================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
+# ------------------------------------------------------------
+# PATHS AND ENVIRONMENT
+# ------------------------------------------------------------
 
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent
 
-# ============================================================
-# SPEAKWISE ENGINE & LEARNING ASSISTANT
-# ============================================================
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+load_dotenv(ROOT_DIR / ".env")
+
+PROVIDER = "groq"
+ACTIVE_MODEL = "openai/gpt-oss-20b"
+
+
+# ------------------------------------------------------------
+# OPTIONAL SPEAKWISE MODULES
+# ------------------------------------------------------------
 
 try:
     from speakwise_engine import analyze
 except ImportError as error:
-    logger.warning("speakwise_engine could not be imported: %s", error)
+    logger.warning("speakwise_engine unavailable: %s", error)
     analyze = None
 
 try:
     from nlp.learning_assistant import analyze_sentence
 except ImportError as error:
-    logger.warning("nlp.learning_assistant could not be imported: %s", error)
+    logger.warning("Learning assistant unavailable: %s", error)
     analyze_sentence = None
 
-# ============================================================
-# GEMINI CONFIGURATION
-# ============================================================
 
-# Model: gemini-2.0-flash — free tier: 15 RPM, 1 500 req/day, 1M tokens/day
-# Fallback:  gemini-1.5-flash — free tier: 15 RPM, 1 500 req/day
-GEMINI_PRIMARY_MODEL  = "gemini-3.5-flash"
-GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
-ACTIVE_MODEL           = GEMINI_PRIMARY_MODEL   # updated at startup if needed
-PROVIDER               = "google_gemini"
+# ------------------------------------------------------------
+# GROQ CLIENT
+# ------------------------------------------------------------
 
-def get_gemini_key() -> Optional[str]:
-    """Retrieve Gemini API key from environment variables."""
-    key = (
-        os.getenv("GEMINI_API_KEY") or
-        os.getenv("GOOGLE_API_KEY") or
-        os.getenv("GOOGLE_GEMINI_KEY")
-    )
+def get_groq_key() -> Optional[str]:
+    key = os.getenv("GROQ_API_KEY")
     return key.strip() if key else None
 
 
-def init_gemini() -> Optional[object]:
-    """
-    Configure the google-generativeai SDK and return a GenerativeModel instance.
-    Returns None and logs a warning if the key is absent or SDK is missing.
-    """
-    if not GENAI_AVAILABLE:
-        logger.error("google-generativeai package is not installed.")
+def init_groq():
+    if not GROQ_AVAILABLE:
+        logger.error("Groq SDK is not installed.")
         return None
 
-    key = get_gemini_key()
+    key = get_groq_key()
     if not key:
-        logger.warning(
-            "GEMINI_API_KEY is not set. AI chat will be unavailable until the key "
-            "is configured in the backend environment variables."
-        )
+        logger.warning("GROQ_API_KEY is not configured.")
         return None
 
-    genai.configure(api_key=key)
-
-    # Try primary model, fall back gracefully
-    global ACTIVE_MODEL
-    for model_name in (GEMINI_PRIMARY_MODEL, GEMINI_FALLBACK_MODEL):
-        try:
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 300,
-                    "top_p": 0.9,
-                },
-                safety_settings=[
-                    {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_ONLY_HIGH"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_ONLY_HIGH"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-                ]
-            )
-            ACTIVE_MODEL = model_name
-            logger.info("Gemini model initialised: %s", model_name)
-            return model
-        except Exception as err:
-            logger.warning("Could not initialise model %s: %s", model_name, err)
-
-    logger.error("All Gemini models failed to initialise.")
-    return None
+    try:
+        client = Groq(api_key=key)
+        logger.info("Groq client initialized.")
+        return client
+    except Exception:
+        logger.exception("Could not initialize Groq client.")
+        return None
 
 
-# Initialise once at import time
-_gemini_model = init_gemini()
+_groq_client = init_groq()
 
 
-def get_gemini_model():
-    """Return the cached Gemini model, or reinitialise if it was never created."""
-    global _gemini_model
-    if _gemini_model is None:
-        _gemini_model = init_gemini()
-    return _gemini_model
+def get_groq_client():
+    global _groq_client
 
-# ============================================================
-# FASTAPI APP & CORS
-# ============================================================
+    if _groq_client is None:
+        _groq_client = init_groq()
+
+    return _groq_client
+
+
+# ------------------------------------------------------------
+# FASTAPI AND CORS
+# ------------------------------------------------------------
 
 app = FastAPI(
     title="SpeakWise AI",
-    description="AI English Communication Learning Platform — powered by Google Gemini",
-    version="2.0.0"
+    description="AI English Communication Learning Platform powered by Groq",
+    version="3.0.0",
 )
 
 ORIGINS = [
@@ -166,204 +136,223 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============================================================
+
+# ------------------------------------------------------------
 # REQUEST MODELS
-# ============================================================
+# ------------------------------------------------------------
 
 class ChatMessage(BaseModel):
     role: str
     content: str
+
 
 class ChatRequest(BaseModel):
     message: str
     language: str = "auto"
     history: List[ChatMessage] = Field(default_factory=list)
 
+
 class AnalyzeRequest(BaseModel):
     sentence: str
 
-# ============================================================
+
+# ------------------------------------------------------------
 # LANGUAGE DETECTION
-# ============================================================
+# ------------------------------------------------------------
 
 HINDI_WORDS = {
     "main", "mein", "mujhe", "mujhse", "mujhko",
-    "mera", "meri", "mere",
-    "aap", "aapko", "aapka", "aapki",
-    "tum", "tumhe", "tumko", "tumhara", "tumhari",
-    "kya", "kaise", "kaisa", "kaisi",
-    "kyun", "kyu", "kyon",
-    "hai", "hain", "ho", "haan",
-    "nahi", "nahin", "na",
-    "kar", "karo", "karna", "karni", "karne",
-    "karta", "karti", "karte",
-    "raha", "rahi", "rahe",
-    "gaya", "gayi", "gaye",
-    "jana", "jaana", "jao",
-    "aana", "aao", "aata", "aati",
-    "acha", "accha", "achha",
-    "bahut", "bohot",
-    "aaj", "kal", "abhi",
-    "baat", "bolo", "bol",
-    "suno", "sun", "samajh",
-    "chahiye", "pata", "lagta",
-    "sakta", "sakti", "sakte",
-    "aur", "lekin", "kyunki",
-    "ghar", "college",
-    "khana", "peena", "hogaya", "hua",
-    "kahan", "kab",
-    "yaar", "yar",
-    "theek", "thik",
-    "hum", "ham", "hamara", "humara",
-    "apna", "apni",
+    "mera", "meri", "mere", "aap", "aapko", "aapka",
+    "aapki", "tum", "tumhe", "tumko", "tumhara",
+    "tumhari", "kya", "kaise", "kaisa", "kaisi",
+    "kyun", "kyu", "kyon", "hai", "hain", "ho", "haan",
+    "nahi", "nahin", "na", "kar", "karo", "karna",
+    "karni", "karne", "karta", "karti", "karte",
+    "raha", "rahi", "rahe", "gaya", "gayi", "gaye",
+    "jana", "jaana", "jao", "aana", "aao", "aata",
+    "aati", "acha", "accha", "achha", "bahut", "bohot",
+    "aaj", "kal", "abhi", "baat", "bolo", "bol",
+    "suno", "samajh", "chahiye", "pata", "lagta",
+    "sakta", "sakti", "sakte", "aur", "lekin", "kyunki",
+    "ghar", "college", "khana", "peena", "hogaya", "hua",
+    "kahan", "kab", "yaar", "yar", "theek", "thik",
+    "hum", "ham", "hamara", "humara", "apna", "apni",
     "ka", "ki", "ke", "ko", "se", "par",
-    "wala", "wali", "wale"
+    "wala", "wali", "wale",
 }
+
 
 def detect_language(text: str) -> str:
     if not text:
         return "english"
+
     if re.search(r"[\u0900-\u097F]", text):
         return "hindi"
-    lower_text = text.lower().strip()
-    words = re.findall(r"[a-zA-Z]+", lower_text)
+
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+
     if not words:
         return "english"
-    hindi_count = sum(1 for w in words if w in HINDI_WORDS)
+
+    hindi_count = sum(1 for word in words if word in HINDI_WORDS)
+
     if hindi_count >= 2:
         return "hinglish"
+
     if hindi_count == 1 and (
-        len(words) >= 2 or words[0] in {"kya", "kaise", "haan", "nahi", "khana", "mujhe"}
+        len(words) >= 2
+        or words[0] in {"kya", "kaise", "haan", "nahi", "khana", "mujhe"}
     ):
         return "hinglish"
+
     return "english"
 
-# ============================================================
-# SYSTEM PROMPT
-# ============================================================
 
-SYSTEM_PROMPT = """You are SpeakWise AI, a friendly and encouraging AI conversation partner dedicated to helping people practice English speaking and communication.
+# ------------------------------------------------------------
+# AI SYSTEM PROMPT
+# ------------------------------------------------------------
 
-Key Guidelines:
-1. Natural Conversation: Keep replies concise (2–3 sentences). Be warm, supportive, and motivating.
-2. Follow-up Question: Always end with ONE natural follow-up question to keep the conversation active.
-3. Language Support:
-   - English input → reply in clear, simple English.
-   - Hindi input (Devanagari or Hinglish/Roman Hindi) → reply naturally in Hinglish so the user feels comfortable, while gently weaving in English phrases to encourage learning.
-   - If the user asks to practice English specifically, switch to simple English.
-4. Gentle English Coaching:
-   - If the user makes a grammatical error in English, gently note the correct form (e.g., "Quick tip: 'I went to college today' 😊") and continue smoothly.
-   - Do NOT give long grammar lectures unless specifically asked.
-5. Tone: Warm, positive, and encouraging."""
+SYSTEM_PROMPT = """
+You are SpeakWise AI, a friendly AI conversation partner helping
+people practice English speaking and communication.
+
+Guidelines:
+1. Reply naturally and usually in 2-3 sentences.
+2. End with one relevant follow-up question when appropriate.
+3. English input: reply in simple, clear English.
+4. Hinglish input: reply naturally in Roman Hinglish.
+5. Hindi written in Devanagari: reply in natural Hindi.
+6. If the user requests English practice, use simple English.
+7. Correct English mistakes gently and briefly.
+8. Be warm, helpful, respectful, and conversational.
+9. Answer the user's actual question. Do not use generic fallback
+   replies when a meaningful answer is possible.
+"""
 
 
-def build_gemini_prompt(user_message: str, user_language: str, history: List[ChatMessage]) -> str:
-    """
-    Build a single text prompt for Gemini (non-chat-session mode) that includes
-    system instructions, recent conversation history, and the current user message.
-    """
-    # Language-specific instruction
+def build_messages(
+    user_message: str,
+    user_language: str,
+    history: List[ChatMessage],
+) -> list:
     if user_language == "hindi":
-        lang_note = "The user is writing in Hindi. Reply in friendly, natural Hindi."
+        language_note = (
+            "The user is writing Hindi in Devanagari. "
+            "Reply in natural Hindi."
+        )
     elif user_language == "hinglish":
-        lang_note = "The user is writing in Hinglish (Roman Hindi). Reply naturally in Hinglish and encourage English practice."
+        language_note = (
+            "The user is writing Roman Hindi/Hinglish. "
+            "Reply naturally in Roman Hinglish."
+        )
     else:
-        lang_note = "The user is writing in English. Reply in clear, simple English."
+        language_note = "Reply in simple, clear English."
 
-    parts = [
-        SYSTEM_PROMPT,
-        f"\nLanguage context: {lang_note}\n",
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT + "\n" + language_note,
+        }
     ]
 
-    # Include up to last 8 conversation turns
-    if history:
-        parts.append("Recent conversation:")
-        for msg in history[-8:]:
-            role = msg.role.lower().strip()
-            content = msg.content.strip()
-            if role == "user":
-                parts.append(f"User: {content}")
-            elif role == "assistant":
-                parts.append(f"SpeakWise AI: {content}")
+    for item in history[-8:]:
+        role = item.role.lower().strip()
+        content = item.content.strip()
 
-    parts.append(f"\nUser: {user_message}")
-    parts.append("SpeakWise AI:")
+        if role in {"user", "assistant"} and content:
+            messages.append({
+                "role": role,
+                "content": content,
+            })
 
-    return "\n".join(parts)
+    messages.append({
+        "role": "user",
+        "content": user_message,
+    })
 
-# ============================================================
-# ROOT & STATIC ASSETS
-# ============================================================
+    return messages
 
-FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
+
+# ------------------------------------------------------------
+# ROOT AND STATIC ASSETS
+# ------------------------------------------------------------
+
+FRONTEND_DIR = ROOT_DIR / "frontend"
+
 
 @app.get("/")
 def home(request: Request):
-    accept = request.headers.get("accept", "")
-    if "text/html" in accept and os.path.isdir(FRONTEND_DIR):
-        index_file = os.path.join(FRONTEND_DIR, "index.html")
-        if os.path.isfile(index_file):
-            return FileResponse(index_file)
+    index_file = FRONTEND_DIR / "index.html"
+
+    if (
+        "text/html" in request.headers.get("accept", "")
+        and index_file.is_file()
+    ):
+        return FileResponse(index_file)
+
     return {
         "status": "online",
         "name": "SpeakWise AI",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "message": "SpeakWise backend is running.",
         "model": ACTIVE_MODEL,
         "provider": PROVIDER,
     }
+
 
 @app.get("/api")
 def api_root():
     return {
         "status": "online",
         "name": "SpeakWise AI",
-        "version": "2.0.0",
-        "message": "SpeakWise backend is running.",
+        "version": "3.0.0",
+        "provider": PROVIDER,
+        "model": ACTIVE_MODEL,
     }
+
 
 @app.get("/{filename}.{ext}")
 def serve_static_assets(filename: str, ext: str):
     file_name = f"{filename}.{ext}"
-    if os.path.isdir(FRONTEND_DIR):
-        target = os.path.join(FRONTEND_DIR, file_name)
-        if os.path.isfile(target):
-            return FileResponse(target)
+    target = FRONTEND_DIR / file_name
+
+    if target.is_file():
+        return FileResponse(target)
+
     return JSONResponse(
         status_code=404,
-        content={"status": "error", "message": f"{file_name} not found"}
+        content={
+            "status": "error",
+            "message": f"{file_name} not found",
+        },
     )
 
-# ============================================================
+
+# ------------------------------------------------------------
 # HEALTH ENDPOINTS
-# ============================================================
+# ------------------------------------------------------------
 
 @app.get("/health")
 @app.get("/api/health")
 def health():
-    key_present = get_gemini_key() is not None
-    sdk_present = GENAI_AVAILABLE
     return {
         "status": "healthy",
-        "gemini_key_configured": key_present,
-        "gemini_sdk_installed": sdk_present,
-        "model": ACTIVE_MODEL,
         "provider": PROVIDER,
-        "free_tier_limits": {
-            "requests_per_minute": 15,
-            "requests_per_day": 1500,
-            "tokens_per_day": "1 million",
-        },
+        "model": ACTIVE_MODEL,
+        "api_key_configured": bool(get_groq_key()),
+        "sdk_installed": GROQ_AVAILABLE,
     }
 
-# ============================================================
-# ANALYZE ENDPOINTS
-# ============================================================
+
+# ------------------------------------------------------------
+# SENTENCE ANALYSIS
+# ------------------------------------------------------------
 
 @app.post("/analyze")
 @app.post("/api/analyze")
 def analyze_api(request: AnalyzeRequest):
     sentence = (request.sentence or "").strip()
+
     if not sentence:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -371,7 +360,7 @@ def analyze_api(request: AnalyzeRequest):
                 "success": False,
                 "error_type": "empty_input",
                 "message": "Please enter a sentence to analyze.",
-            }
+            },
         )
 
     if analyze is None:
@@ -380,33 +369,33 @@ def analyze_api(request: AnalyzeRequest):
             content={
                 "success": False,
                 "error_type": "service_unavailable",
-                "message": "Learning analysis engine is currently unavailable.",
-            }
+                "message": "Learning analysis engine is unavailable.",
+            },
         )
 
     try:
-        result = analyze(sentence)
-        return result
-    except Exception as error:
-        logger.error("Analyze error: %s", error)
+        return analyze(sentence)
+    except Exception:
+        logger.exception("Sentence analysis failed.")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "success": False,
                 "error_type": "analysis_error",
                 "message": "Sentence analysis failed.",
-                "error": str(error),
-            }
+            },
         )
 
-# ============================================================
+
+# ------------------------------------------------------------
 # CHAT ENDPOINTS
-# ============================================================
+# ------------------------------------------------------------
 
 @app.post("/chat")
 @app.post("/api/chat")
 def chat(request: ChatRequest):
     message = (request.message or "").strip()
+
     if not message:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -414,207 +403,158 @@ def chat(request: ChatRequest):
                 "success": False,
                 "error_type": "empty_message",
                 "message": "Please enter a message.",
-            }
+            },
         )
 
-    # ── Preflight checks ──────────────────────────────────────
-    if not GENAI_AVAILABLE:
-        logger.error("google-generativeai package is not installed on the server.")
+    if not GROQ_AVAILABLE:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "success": False,
                 "error_type": "dependency_error",
-                "message": (
-                    "The google-generativeai Python package is not installed on the backend. "
-                    "Add 'google-generativeai>=0.8.0' to requirements.txt and redeploy."
-                ),
-                "provider": PROVIDER,
-            }
+                "message": "Groq SDK is missing. Install it using pip install groq.",
+            },
         )
 
-    if not get_gemini_key():
-        logger.warning("Chat request rejected: GEMINI_API_KEY not configured.")
+    if not get_groq_key():
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "success": False,
                 "error_type": "missing_configuration",
-                "message": (
-                    "GEMINI_API_KEY is not set on the backend. "
-                    "Add it as an environment variable on Render (Dashboard → Environment) "
-                    "and redeploy the service. Get a free key at https://aistudio.google.com."
-                ),
-                "provider": PROVIDER,
-            }
+                "message": "GROQ_API_KEY is not configured on the backend.",
+            },
         )
 
-    # ── Language detection ────────────────────────────────────
-    requested_language = request.language.strip().lower()
-    detected_language  = detect_language(message)
+    requested_language = (request.language or "auto").strip().lower()
+    detected_language = detect_language(message)
+
     user_language = (
-        requested_language if requested_language in {"hindi", "hinglish", "english"}
+        requested_language
+        if requested_language in {"hindi", "hinglish", "english"}
         else detected_language
     )
 
-    # ── Optional learning analysis ────────────────────────────
     learning = {}
+
     if analyze_sentence is not None:
         try:
             learning = analyze_sentence(message)
-        except Exception as err:
-            logger.debug("analyze_sentence error: %s", err)
+        except Exception:
+            logger.exception("Optional learning analysis failed.")
 
-    # ── Build prompt ──────────────────────────────────────────
-    prompt = build_gemini_prompt(
-        user_message=message,
-        user_language=user_language,
-        history=request.history,
-    )
+    client = get_groq_client()
 
-    # ── Call Gemini API ───────────────────────────────────────
-    model = get_gemini_model()
-    if model is None:
-        logger.error("Gemini model is not available despite key being set.")
+    if client is None:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "success": False,
-                "error_type": "model_init_error",
-                "message": "Gemini model could not be initialised. Check server logs.",
-                "provider": PROVIDER,
-            }
+                "error_type": "client_initialization_error",
+                "message": "Could not initialize the Groq client.",
+            },
         )
 
     try:
-        gemini_response = model.generate_content(prompt)
+        messages = build_messages(
+            user_message=message,
+            user_language=user_language,
+            history=request.history,
+        )
 
-        # Extract text safely
-        answer = ""
-        try:
-            answer = gemini_response.text.strip()
-        except Exception:
-            # Fallback: iterate parts
-            for part in (gemini_response.parts or []):
-                if hasattr(part, "text") and part.text:
-                    answer += part.text
+        result = client.chat.completions.create(
+            model=ACTIVE_MODEL,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=300,
+        )
 
-        answer = answer.strip()
+        answer = (
+            result.choices[0].message.content
+            if result.choices
+            else None
+        )
+
+        answer = answer.strip() if answer else ""
 
         if not answer:
-            # Check for safety blocks
-            block_reason = None
-            try:
-                block_reason = str(gemini_response.prompt_feedback)
-            except Exception:
-                pass
-            logger.warning("Gemini returned empty response. Feedback: %s", block_reason)
             return JSONResponse(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_502_BAD_GATEWAY,
                 content={
                     "success": False,
                     "error_type": "empty_response",
-                    "message": "The AI returned an empty response. This may be due to safety filters. Please rephrase your message.",
-                    "provider": PROVIDER,
-                }
+                    "message": "The AI returned an empty response. Please try again.",
+                },
             )
-
-        ai_language = detect_language(answer)
 
         return {
             "success": True,
             "message": message,
             "response": answer,
-            "language": ai_language,
+            "language": detect_language(answer),
             "user_language": user_language,
             "model": ACTIVE_MODEL,
             "provider": PROVIDER,
             "learning": learning,
         }
 
-    except Exception as err:
-        err_str = str(err)
+    except Exception as error:
+        error_text = str(error).lower()
+        logger.error("Groq API request failed: %s", type(error).__name__)
 
-        # Never leak the API key in error messages
-        api_key = get_gemini_key()
-        if api_key and api_key in err_str:
-            err_str = err_str.replace(api_key, "[REDACTED]")
-
-        logger.error("Gemini API error: %s", err_str)
-
-        # Quota exhausted (HTTP 429 / RESOURCE_EXHAUSTED)
-        if any(kw in err_str.lower() for kw in ("429", "quota", "resource_exhausted", "rate limit")):
+        if any(term in error_text for term in ("429", "rate_limit", "quota")):
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "success": False,
                     "error_type": "quota_exceeded",
-                    "message": (
-                        "Google Gemini free-tier quota reached (15 requests/min or 1 500 req/day). "
-                        "Please wait a moment and try again. "
-                        "Free limits reset every minute (RPM) and every day at midnight Pacific time."
-                    ),
+                    "message": "Groq usage limit reached. Please try again later or check your Groq Console limits.",
                     "provider": PROVIDER,
-                    "model": ACTIVE_MODEL,
-                }
+                },
             )
 
-        # Invalid API key / permission denied
-        if any(kw in err_str.lower() for kw in ("401", "403", "api_key", "invalid", "permission", "unauthenticated")):
+        if any(term in error_text for term in ("401", "403", "authentication", "api_key")):
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={
                     "success": False,
                     "error_type": "authentication_error",
-                    "message": (
-                        "GEMINI_API_KEY is invalid or has been revoked. "
-                        "Generate a new key at https://aistudio.google.com/apikey and update "
-                        "the environment variable on Render."
-                    ),
+                    "message": "Groq API authentication failed. Check GROQ_API_KEY.",
                     "provider": PROVIDER,
-                }
+                },
             )
 
-        # Model not found / deprecated
-        if any(kw in err_str.lower() for kw in ("404", "not found", "model")):
+        if any(term in error_text for term in ("404", "model_not_found")):
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
                     "success": False,
                     "error_type": "model_unavailable",
-                    "message": f"Gemini model '{ACTIVE_MODEL}' is not available. Check Google AI Studio for current model names.",
+                    "message": "The configured Groq model is unavailable.",
                     "provider": PROVIDER,
-                }
+                    "model": ACTIVE_MODEL,
+                },
             )
 
-        # Timeout
-        if any(kw in err_str.lower() for kw in ("timeout", "timed out", "deadline")):
-            return JSONResponse(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                content={
-                    "success": False,
-                    "error_type": "timeout",
-                    "message": "The Gemini API request timed out. Please try again.",
-                    "provider": PROVIDER,
-                }
-            )
-
-        # Generic error — surface a sanitised message, no fake responses
         return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             content={
                 "success": False,
                 "error_type": "provider_error",
-                "message": f"Gemini API error: {err_str[:200]}",
+                "message": "Groq could not complete the request. Check backend logs and try again.",
                 "provider": PROVIDER,
-            }
+            },
         )
 
-# ============================================================
-# SERVER STARTUP LOG
-# ============================================================
+
+# ------------------------------------------------------------
+# STARTUP LOG
+# ------------------------------------------------------------
 
 logger.info(
-    "SpeakWise AI Backend v2.0 initialised — provider: %s, model: %s, sdk: %s",
-    PROVIDER, ACTIVE_MODEL, GENAI_AVAILABLE
+    "SpeakWise backend initialized: provider=%s, model=%s, sdk=%s, key_configured=%s",
+    PROVIDER,
+    ACTIVE_MODEL,
+    GROQ_AVAILABLE,
+    bool(get_groq_key()),
 )
