@@ -64,8 +64,8 @@ except ImportError as error:
 
 # Model: gemini-2.0-flash — free tier: 15 RPM, 1 500 req/day, 1M tokens/day
 # Fallback:  gemini-1.5-flash — free tier: 15 RPM, 1 500 req/day
-GEMINI_PRIMARY_MODEL   = "gemini-2.0-flash"
-GEMINI_FALLBACK_MODEL  = "gemini-1.5-flash"
+GEMINI_PRIMARY_MODEL  = "gemini-3.5-flash"
+GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
 ACTIVE_MODEL           = GEMINI_PRIMARY_MODEL   # updated at startup if needed
 PROVIDER               = "google_gemini"
 
